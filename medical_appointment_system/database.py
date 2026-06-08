@@ -51,5 +51,7 @@ doctors = [
     },
 ]
 
-appointments = []
-appt_counter = 1
+appointments = [
+    {'id': i, 'doctor_id': doctors[i-1]['id'], 'patient_id': i, 'date': '2022-01-01'}
+    for i in range(1, 7)
+]
