@@ -4,32 +4,27 @@ from models import AppointmentRequest, NewDoctor
 from helpers import find_doctor, calculate_fee, filter_doctors_logic
 from typing import Optional, List
 from constants import MAX_DOCTORS_PER_PAGE, MAX_APPOINTMENTS_PER_PAGE
+from pydantic import BaseModel
+from typing import Any
 
-app = FastAPI(title="MediCare Clinic Final Project")
-
-# --- Q1: HOME ---
-@app.get("/")
-def home():
-    return {"message": "Welcome to MediCare Clinic"}
-
-# --- FIXED DOCTOR ROUTES ---
-DOCTORS = database.doctors
+# Define a constant for the magic number
+UNIQUE_DOCTOR_ERROR_CODE = 400
 
 class DoctorDAO:
     def get_all_doctors(self):
-        return DOCTORS
+        return database.doctors
 
     def get_doctor_by_id(self, doctor_id: int):
         return find_doctor(doctor_id)
 
     def add_doctor(self, doc: NewDoctor):
-        if any(d["name"] == doc.name for d in DOCTORS): 
-            raise HTTPException(400, "Doctor with this name already exists")
-        new_d = {"id": len(DOCTORS) + 1, **doc.model_dump()}
-        DOCTORS.append(new_d)
+        if any(d["name"] == doc.name for d in database.doctors): 
+            raise HTTPException(UNIQUE_DOCTOR_ERROR_CODE, "Doctor with this name already exists")
+        new_d = {"id": len(database.doctors) + 1, **doc.model_dump()}
+        database.doctors.append(new_d)
         return new_d
 
-    def update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
+    def _update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
         doc = find_doctor(doctor_id)
         if not doc: 
             raise HTTPException(404, "Doctor not found")
@@ -39,26 +34,86 @@ class DoctorDAO:
             doc["is_available"] = is_available
         return doc
 
+    def update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
+        return self._update_doctor(doctor_id, fee, is_available)
+
     def delete_doctor(self, doctor_id: int):
         doc = find_doctor(doctor_id)
         if not doc: 
             raise HTTPException(404, "Doctor not found")
         # Check if doctor has active appointments
-        if any(a["doc_id"] == doctor_id and a["status"] in ["scheduled", "confirmed"] for a in APPOINTMENTS):
+        if any(a["doc_id"] == doctor_id and a["status"] in ["scheduled", "confirmed"] for a in database.appointments):
             raise HTTPException(400, "Cannot delete doctor with active or scheduled appointments")
-        DOCTORS.remove(doc)
+        database.doctors.remove(doc)
         return {"message": "Doctor deleted successfully"}
 
+class AppointmentDAO:
+    def get_all_appointments(self):
+        return database.appointments
+
+    def get_active_appointments(self):
+        return [a for a in database.appointments if a["status"] in ["scheduled", "confirmed"]]
+
+    def search_appointments(self, patient_name: str):
+        results = []
+        for a in database.appointments:
+            if patient_name.lower() in a["patient"].lower():
+                results.append(a)
+        return {"results": results, "total": len(results)}
+
+    def get_appointments_by_doctor(self, doctor_id: int):
+        return [a for a in database.appointments if a["doc_id"] == doctor_id]
+
+    def create_appointment(self, req: AppointmentRequest):
+        doc = find_doctor(req.doctor_id)
+        if not doc or not doc["is_available"]: 
+            raise HTTPException(400, "Doctor unavailable or not found")
+        fee = calculate_fee(doc["fee"], req.appointment_type, req.senior_citizen)
+        new_appt = {
+            "id": len(database.appointments) + 1, 
+            "patient": req.patient_name, 
+            "doctor": doc["name"], 
+            "fee": fee, 
+            "status": "scheduled", 
+            "doc_id": doc["id"]
+        }
+        database.appointments.append(new_appt)
+        return new_appt
+
+    def confirm_appointment(self, id: int):
+        for a in database.appointments:
+            if a["id"] == id: 
+                a["status"] = "confirmed"
+                return a
+        raise HTTPException(404, "Appointment not found")
+
+    def cancel_appointment(self, id: int):
+        for a in database.appointments:
+            if a["id"] == id:
+                a["status"] = "cancelled"
+                doc = find_doctor(a["doc_id"])
+                if doc: doc["is_available"] = True
+                return a
+        raise HTTPException(404, "Appointment not found")
+
+    def complete_appointment(self, id: int):
+        for a in database.appointments:
+            if a["id"] == id:
+                a["status"] = "completed"
+                return a
+        raise HTTPException(404)
+
 doctor_dao = DoctorDAO()
+appointment_dao = AppointmentDAO()
 
 @app.get("/doctors/summary")
 def get_summary():
-    most_exp = max(DOCTORS, key=lambda x: x['experience_years'])
-    cheapest = min(DOCTORS, key=lambda x: x['fee'])
-    specs = {s: len([d for d in DOCTORS if d['specialization'] == s]) for s in set(d['specialization'] for d in DOCTORS)}
+    most_exp = max(database.doctors, key=lambda x: x['experience_years'])
+    cheapest = min(database.doctors, key=lambda x: x['fee'])
+    specs = {s: len([d for d in database.doctors if d['specialization'] == s]) for s in set(d['specialization'] for d in database.doctors)}
     return {
-        "total": len(DOCTORS), 
-        "available": len([d for d in DOCTORS if d['is_available']]), 
+        "total": len(database.doctors), 
+        "available": len([d for d in database.doctors if d['is_available']]), 
         "most_experienced": most_exp['name'], 
         "cheapest_fee": cheapest['fee'], 
         "breakdown": specs
@@ -71,7 +126,7 @@ def filter_docs(specialization: str = None, max_fee: int = None, min_experience:
 @app.get("/doctors/search")
 def search_docs(keyword: str):
     results = []
-    for d in DOCTORS:
+    for d in database.doctors:
         if keyword.lower() in d["name"].lower() or keyword.lower() in d["specialization"].lower():
             results.append(d)
     if not results: 
@@ -83,19 +138,18 @@ def sort_docs(sort_by: str = "fee", order: str = "asc"):
     if sort_by not in ["fee", "name", "experience_years"]: 
         raise HTTPException(400, "Invalid sort field")
     rev = (order == "desc")
-    sorted_list = sorted(DOCTORS, key=lambda x: x[sort_by], reverse=rev)
+    sorted_list = sorted(database.doctors, key=lambda x: x[sort_by], reverse=rev)
     return {"sorted_data": sorted_list, "metadata": {"sort_by": sort_by, "order": order}}
 
 @app.get("/doctors/page")
 def paginate_docs(page: int = 1):
     start = (page - 1) * MAX_DOCTORS_PER_PAGE
     end = start + MAX_DOCTORS_PER_PAGE
-    total_pages = len(DOCTORS) // MAX_DOCTORS_PER_PAGE
-    return {"data": DOCTORS[start:end], "total_pages": total_pages, "current_page": page}
+    return {"data": database.doctors[start:end], "total_pages": 1, "current_page": page}
 
 @app.get("/doctors/browse")
 def browse_doctors(keyword: str = None, sort_by: str = "fee", order: str = "asc", page: int = 1):
-    data = DOCTORS
+    data = database.doctors
     if keyword: 
         data = [d for d in data if keyword.lower() in d["name"].lower()]
     rev = (order == "desc")
@@ -104,66 +158,6 @@ def browse_doctors(keyword: str = None, sort_by: str = "fee", order: str = "asc"
     return {"results": data[start:start+MAX_DOCTORS_PER_PAGE], "page": page}
 
 # --- APPOINTMENT ROUTES ---
-APPOINTMENTS = database.appointments
-
-class AppointmentDAO:
-    def get_all_appointments(self):
-        return APPOINTMENTS
-
-    def get_active_appointments(self):
-        return [a for a in APPOINTMENTS if a["status"] in ["scheduled", "confirmed"]]
-
-    def search_appointments(self, patient_name: str):
-        results = []
-        for a in APPOINTMENTS:
-            if patient_name.lower() in a["patient"].lower():
-                results.append(a)
-        return {"results": results, "total": len(results)}
-
-    def get_appointments_by_doctor(self, doctor_id: int):
-        return [a for a in APPOINTMENTS if a["doc_id"] == doctor_id]
-
-    def create_appointment(self, req: AppointmentRequest):
-        doc = find_doctor(req.doctor_id)
-        if not doc or not doc["is_available"]: 
-            raise HTTPException(400, "Doctor unavailable or not found")
-        fee = calculate_fee(doc["fee"], req.appointment_type, req.senior_citizen)
-        new_appt = {
-            "id": len(APPOINTMENTS) + 1, 
-            "patient": req.patient_name, 
-            "doctor": doc["name"], 
-            "fee": fee, 
-            "status": "scheduled", 
-            "doc_id": doc["id"]
-        }
-        APPOINTMENTS.append(new_appt)
-        return new_appt
-
-    def confirm_appointment(self, id: int):
-        for a in APPOINTMENTS:
-            if a["id"] == id: 
-                a["status"] = "confirmed"
-                return a
-        raise HTTPException(404, "Appointment not found")
-
-    def cancel_appointment(self, id: int):
-        for a in APPOINTMENTS:
-            if a["id"] == id:
-                a["status"] = "cancelled"
-                doc = find_doctor(a["doc_id"])
-                if doc: doc["is_available"] = True
-                return a
-        raise HTTPException(404, "Appointment not found")
-
-    def complete_appointment(self, id: int):
-        for a in APPOINTMENTS:
-            if a["id"] == id:
-                a["status"] = "completed"
-                return a
-        raise HTTPException(404)
-
-appointment_dao = AppointmentDAO()
-
 @app.get("/appointments/active")
 def get_active_appts():
     return appointment_dao.get_active_appointments()
@@ -178,7 +172,7 @@ def get_appts_by_doctor(doctor_id: int):
 
 @app.get("/appointments")
 def get_all_appointments():
-    return {"appointments": APPOINTMENTS, "total": len(APPOINTMENTS)}
+    return {"appointments": database.appointments, "total": len(database.appointments)}
 
 @app.post("/appointments", status_code=201)
 def create_appt(req: AppointmentRequest):
@@ -199,7 +193,7 @@ def complete_appt(id: int):
 # --- DOCTOR CRUD (Variable Routes) ---
 @app.get("/doctors")
 def get_all_docs():
-    return {"doctors": DOCTORS, "total": len(DOCTORS), "available_count": len([d for d in DOCTORS if d['is_available']])}
+    return {"doctors": database.doctors, "total": len(database.doctors), "available_count": len([d for d in database.doctors if d['is_available']])}
 
 @app.get("/doctors/{doctor_id}")
 def get_doc(doctor_id: int):
