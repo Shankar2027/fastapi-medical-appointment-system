@@ -17,6 +17,12 @@ class DoctorDAO:
     def get_doctor_by_id(self, doctor_id: int):
         return find_doctor(doctor_id)
 
+    def _get_doctor(self, doctor_id: int):
+        doc = self.get_doctor_by_id(doctor_id)
+        if not doc: 
+            raise HTTPException(404, "Doctor not found")
+        return doc
+
     def add_doctor(self, doc: NewDoctor):
         if self._is_doctor_already_exists(doc.name):
             raise HTTPException(UNIQUE_DOCTOR_ERROR_CODE, "Doctor with this name already exists")
@@ -25,9 +31,7 @@ class DoctorDAO:
         return new_d
 
     def _update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
-        doc = self.get_doctor_by_id(doctor_id)
-        if not doc: 
-            raise HTTPException(404, "Doctor not found")
+        doc = self._get_doctor(doctor_id)
         if fee is not None: 
             doc["fee"] = fee
         if is_available is not None: 
@@ -39,9 +43,7 @@ class DoctorDAO:
         return self._update_doctor(doctor_id, fee, is_available)
 
     def delete_doctor(self, doctor_id: int):
-        doc = self.get_doctor_by_id(doctor_id)
-        if not doc: 
-            raise HTTPException(404, "Doctor not found")
+        doc = self._get_doctor(doctor_id)
         # Check if doctor has active appointments
         if self._has_active_appointments(doc["id"]):
             raise HTTPException(400, "Cannot delete doctor with active or scheduled appointments")
