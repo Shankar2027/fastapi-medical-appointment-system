@@ -1,5 +1,10 @@
 # database.py
 
+# Define named constants
+START_DATE = '2022-01-01'
+NUMBER_OF_APPOINTMENTS = 6
+
+# Define doctors
 doctors = [
     {
         "id": 1, 
@@ -51,7 +56,16 @@ doctors = [
     },
 ]
 
-appointments = [
-    {'id': i, 'doctor_id': doctors[i-1]['id'], 'patient_id': i, 'date': '2022-01-01'}
-    for i in range(1, 7)
-]
+def generate_appointments(doctors, start_date, number_of_appointments):
+    appointments = []
+    for i in range(1, number_of_appointments + 1):
+        appointment = {
+            'id': i,
+            'doctor_id': doctors[i - 1]['id'],
+            'patient_id': i,
+            'date': start_date
+        }
+        appointments.append(appointment)
+    return appointments
+
+appointments = generate_appointments(doctors, START_DATE, NUMBER_OF_APPOINTMENTS)
