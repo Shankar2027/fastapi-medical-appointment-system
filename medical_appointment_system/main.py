@@ -4,8 +4,6 @@ from models import AppointmentRequest, NewDoctor
 from helpers import find_doctor, calculate_fee, filter_doctors_logic
 from typing import Optional, List
 from constants import MAX_DOCTORS_PER_PAGE, MAX_APPOINTMENTS_PER_PAGE
-from pydantic import BaseModel
-from typing import Any
 
 # Define a constant for the magic number
 UNIQUE_DOCTOR_ERROR_CODE = 400  # Unique doctor error code
@@ -30,22 +28,28 @@ class DoctorDAO:
         database.add_doctor(new_d)
         return new_d
 
-    def _update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
-        doc = self._get_doctor(doctor_id)
-        if fee is not None: 
-            doc["fee"] = fee
-        if is_available is not None: 
-            doc["is_available"] = is_available
+    def _update_doctor_fee(self, doc: dict, fee: int):
+        doc["fee"] = fee
+        database.update_doctor(doc)
+        return doc
+
+    def _update_doctor_availability(self, doc: dict, is_available: bool):
+        doc["is_available"] = is_available
         database.update_doctor(doc)
         return doc
 
     def update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
-        return self._update_doctor(doctor_id, fee, is_available)
+        doc = self._get_doctor(doctor_id)
+        if fee is not None: 
+            doc = self._update_doctor_fee(doc, fee)
+        if is_available is not None: 
+            doc = self._update_doctor_availability(doc, is_available)
+        return doc
 
     def delete_doctor(self, doctor_id: int):
         doc = self._get_doctor(doctor_id)
         # Check if doctor has active appointments
-        if self._has_active_appointments(doc["id"]):
+        if self._check_doctor_availability(doc["id"]):
             raise HTTPException(400, "Cannot delete doctor with active or scheduled appointments")
         database.delete_doctor(doc)
         return {"message": "Doctor deleted successfully"}
@@ -53,7 +57,7 @@ class DoctorDAO:
     def _is_doctor_already_exists(self, name: str):
         return any(d["name"] == name for d in database.get_doctors())
 
-    def _has_active_appointments(self, doctor_id: int):
+    def _check_doctor_availability(self, doctor_id: int):
         return any(a["doc_id"] == doctor_id and a["status"] in ["scheduled", "confirmed"] for a in database.get_appointments())
 
 class AppointmentDAO:
