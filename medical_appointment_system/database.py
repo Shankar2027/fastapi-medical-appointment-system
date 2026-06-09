@@ -70,19 +70,22 @@ def get_doctor_fee_and_experience(doctor_index):
     """Get the doctor's fee and experience years."""
     return DOCTOR_FEE_RANGES[doctor_index]["fee"], DOCTOR_FEE_RANGES[doctor_index]["experience_years"]
 
+def create_appointment(doctor, start_date):
+    """Create an appointment for the given doctor and start date."""
+    return {
+        'id': doctor['id'] + 1,
+        'doctor_id': doctor['id'],
+        'patient_id': doctor['id'] + 1,
+        'date': start_date,
+        'fee': doctor['fee'],
+        'experience_years': doctor['experience_years']
+    }
+
 def generate_appointments(doctors, start_date, number_of_appointments):
     """Generate appointments for the given doctors, start date, and number of appointments."""
     appointments = []
-    for i in range(1, number_of_appointments + 1):
-        doctor_fee, doctor_experience = get_doctor_fee_and_experience(i - 1)
-        appointment = {
-            'id': i,
-            'doctor_id': doctors[i - 1]['id'],
-            'patient_id': i,
-            'date': start_date,
-            'fee': doctor_fee,
-            'experience_years': doctor_experience
-        }
+    for doctor in doctors:
+        appointment = create_appointment(doctor, start_date)
         appointments.append(appointment)
     return appointments
 
