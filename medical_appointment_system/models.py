@@ -1,11 +1,9 @@
-from typing import Optional
-from datetime import datetime
+from typing import get_type_hints
 
 class AppointmentRequest(BaseModel): 
     patient_name: str = Field(..., min_length=2)
     doctor_id: int = Field(..., gt=0)
     date: datetime = Field(..., min_value=8)
-    reason: str = Field(..., min_length=5)
     reason: str = Field(..., min_length=5)
 
 class NewDoctor(BaseModel): 
