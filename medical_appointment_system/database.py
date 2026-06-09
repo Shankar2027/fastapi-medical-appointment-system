@@ -3,6 +3,8 @@
 # Define named constants
 START_DATE = '2022-01-01'
 NUMBER_OF_APPOINTMENTS = 6
+
+# Define doctor's fee and experience years
 DOCTOR_FEE_RANGES = [
     {"fee": 200, "experience_years": 12, "is_available": True},
     {"fee": 300, "experience_years": 8, "is_available": False},
@@ -64,14 +66,22 @@ doctors = [
     },
 ]
 
+def get_doctor_fee_and_experience(doctor_index):
+    """Get the doctor's fee and experience years."""
+    return DOCTOR_FEE_RANGES[doctor_index]["fee"], DOCTOR_FEE_RANGES[doctor_index]["experience_years"]
+
 def generate_appointments(doctors, start_date, number_of_appointments):
+    """Generate appointments for the given doctors, start date, and number of appointments."""
     appointments = []
     for i in range(1, number_of_appointments + 1):
+        doctor_fee, doctor_experience = get_doctor_fee_and_experience(i - 1)
         appointment = {
             'id': i,
             'doctor_id': doctors[i - 1]['id'],
             'patient_id': i,
-            'date': start_date
+            'date': start_date,
+            'fee': doctor_fee,
+            'experience_years': doctor_experience
         }
         appointments.append(appointment)
     return appointments
