@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, status
 import database
 from models import AppointmentRequest, NewDoctor
 from helpers import find_doctor, calculate_fee, filter_doctors_logic
@@ -21,12 +21,8 @@ class DoctorDAO:
             raise HTTPException(404, "Doctor not found")
         return doc
 
-    def add_doctor(self, doc: NewDoctor):
-        if self._is_doctor_already_exists(doc.name):
-            raise HTTPException(UNIQUE_DOCTOR_ERROR_CODE, "Doctor with this name already exists")
-        new_d = {"id": len(database.get_doctors()) + 1, **doc.model_dump()}
-        database.add_doctor(new_d)
-        return new_d
+    def _is_doctor_already_exists(self, name: str):
+        return any(d["name"] == name for d in database.get_doctors())
 
     def _update_doctor_fee(self, doc: dict, fee: int):
         doc["fee"] = fee
@@ -38,13 +34,16 @@ class DoctorDAO:
         database.update_doctor(doc)
         return doc
 
-    def update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
-        doc = self._get_doctor(doctor_id)
+    def _update_doctor(self, doc: dict, fee: int = None, is_available: bool = None):
         if fee is not None: 
             doc = self._update_doctor_fee(doc, fee)
         if is_available is not None: 
             doc = self._update_doctor_availability(doc, is_available)
         return doc
+
+    def update_doctor(self, doctor_id: int, fee: int = None, is_available: bool = None):
+        doc = self._get_doctor(doctor_id)
+        return self._update_doctor(doc, fee, is_available)
 
     def delete_doctor(self, doctor_id: int):
         doc = self._get_doctor(doctor_id)
@@ -53,9 +52,6 @@ class DoctorDAO:
             raise HTTPException(400, "Cannot delete doctor with active or scheduled appointments")
         database.delete_doctor(doc)
         return {"message": "Doctor deleted successfully"}
-
-    def _is_doctor_already_exists(self, name: str):
-        return any(d["name"] == name for d in database.get_doctors())
 
     def _check_doctor_availability(self, doctor_id: int):
         return any(a["doc_id"] == doctor_id and a["status"] in ["scheduled", "confirmed"] for a in database.get_appointments())
@@ -221,11 +217,16 @@ def get_doc(doctor_id: int):
 
 @app.post("/doctors", status_code=201)
 def add_doc(doc: NewDoctor):
-    return doctor_dao.add_doctor(doc)
+    if doctor_dao._is_doctor_already_exists(doc.name):
+        raise HTTPException(UNIQUE_DOCTOR_ERROR_CODE, "Doctor with this name already exists")
+    new_d = {"id": len(database.get_doctors()) + 1, **doc.model_dump()}
+    database.add_doctor(new_d)
+    return new_d
 
 @app.put("/doctors/{doctor_id}")
 def update_doc(doctor_id: int, fee: int = None, is_available: bool = None):
-    return doctor_dao.update_doctor(doctor_id, fee, is_available)
+    doc = doctor_dao._get_doctor(doctor_id)
+    return doctor_dao._update_doctor(doc, fee, is_available)
 
 @app.delete("/doctors/{doctor_id}")
 def delete_doc(doctor_id: int):
